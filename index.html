@@ -475,7 +475,7 @@
   var TYRES={ truck:{label:"Truck tyre", mesh:"30#", store:"truck"}, bike:{label:"Bike tyre", mesh:"20#", store:"bike"} };
   function M(id){ for(var i=0;i<MACHINES.length;i++) if(MACHINES[i].id===id) return MACHINES[i]; return null; }
   function shortName(id){ var m=M(id); return m?m.short:id; }
-  // shop-floor categories used by the History machine filter
+  // shop-floor categories, used by the History machine filter
   var MACHINE_GROUPS=[
     {id:"autoclaves", label:"Autoclaves",       kinds:["autoclave"]},
     {id:"refiners",   label:"Refiners",         kinds:["refiner","prerefiner","coarse"]},
@@ -2242,7 +2242,7 @@
     });
     var dates=Object.keys(dateSet).sort().reverse();
     var batches=Object.keys(batchSet).sort(function(a,b){ var na=parseFloat(a),nb=parseFloat(b); if(!isNaN(na)&&!isNaN(nb)) return nb-na; return a<b?1:-1; });
-    // machines that actually have runs, in MACHINES order first, then anything unrecognised
+    // only machines that actually have runs: MACHINES order first, then anything unrecognised
     var machIds=MACHINES.map(function(m){ return m.id; }).filter(function(id){ return !!machMeta[id]; });
     Object.keys(machMeta).forEach(function(id){ if(machIds.indexOf(id)<0) machIds.push(id); });
     function machGroup(id){ return machineGroupOf(id, machMeta[id]?machMeta[id].kind:""); }
@@ -2255,6 +2255,7 @@
 
     var batchMode = histFilter.batch!=="all";
     var fr = runs.filter(function(r){
+      // machine narrows every view, including a chosen batch
       if(histFilter.machine!=="all"){
         if(histFilter.machine.indexOf("g:")===0){
           var g=machineGroupOf(r.machineId, r.kind);
