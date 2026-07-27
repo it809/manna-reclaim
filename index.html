@@ -295,8 +295,8 @@
   .diffout b{ color:var(--ink); }
   .diffout.bad{ background:#2c1816; border-color:#5a2c1d; color:#f0b3ab; }
   .diffout.bad b{ color:var(--err); }
-  .histbar{ display:flex; flex-wrap:wrap; gap:8px; margin:0 2px 12px; }
-  .histbar .field{ flex:1 1 calc(50% - 4px); min-width:128px; }
+  .histbar{ display:flex; gap:8px; margin:0 2px 12px; }
+  .histbar .field{ flex:1; }
   .histbar select{ width:100%; }
   .histbar select:disabled{ opacity:.45; }
   .histsum{ background:#10201a; border:1px solid #244338; border-radius:11px; padding:11px 13px; margin:0 2px 12px; font-size:13.5px; }
@@ -475,17 +475,6 @@
   var TYRES={ truck:{label:"Truck tyre", mesh:"30#", store:"truck"}, bike:{label:"Bike tyre", mesh:"20#", store:"bike"} };
   function M(id){ for(var i=0;i<MACHINES.length;i++) if(MACHINES[i].id===id) return MACHINES[i]; return null; }
   function shortName(id){ var m=M(id); return m?m.short:id; }
-  // shop-floor categories, used by the History machine filter
-  var MACHINE_GROUPS=[
-    {id:"autoclaves", label:"Autoclaves",       kinds:["autoclave"]},
-    {id:"refiners",   label:"Refiners",         kinds:["refiner","prerefiner","coarse"]},
-    {id:"grinders",   label:"Cracker/Grinders", kinds:["grind"]}
-  ];
-  function machineGroupOf(id, kind){
-    var m=M(id), k=(m&&m.kind)||kind||"";
-    for(var i=0;i<MACHINE_GROUPS.length;i++) if(MACHINE_GROUPS[i].kinds.indexOf(k)>=0) return MACHINE_GROUPS[i];
-    return null;
-  }
   var QUALITIES=["Special","SuperFine","Fine","Medium","DRC"];
   var SUPERVISORS=["Mathai","Rahul","Devanand"];
 
@@ -1437,7 +1426,7 @@
   /* ===================== views ===================== */
   var active="machines";
   var lastTab=null;
-  var histFilter={ date:"all", shift:"all", batch:"all", machine:"all" };
+  var histFilter={ date:"all", shift:"all", batch:"all" };
   var TABS=[
     {id:"machines",label:"Machines",icon:'<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>'},
     {id:"batches",label:"Batches",icon:'<path d="M12 2 3 7l9 5 9-5-9-5Z"/><path d="M3 17l9 5 9-5"/><path d="M3 12l9 5 9-5"/>'},
@@ -2234,34 +2223,18 @@
     if(!state.runs.length) return '<div class="view-head"><h1>History</h1></div>'+
       empty('<path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 4v4h4"/>',"No runs logged","Captured runs from every machine show up here.");
     var runs=state.runs.slice();
-    var dateSet={}, batchSet={}, machMeta={};
+    var dateSet={}, batchSet={};
     runs.forEach(function(r){
       var d=runDate(r); if(d) dateSet[d]=true;
       if(r.line==="special" && r.batchNo) batchSet[String(r.batchNo)]=true;   // special-line batches only
-      if(r.machineId && !machMeta[r.machineId]) machMeta[r.machineId]={ kind:r.kind||"", label:r.machine||r.short||r.machineId };
     });
     var dates=Object.keys(dateSet).sort().reverse();
     var batches=Object.keys(batchSet).sort(function(a,b){ var na=parseFloat(a),nb=parseFloat(b); if(!isNaN(na)&&!isNaN(nb)) return nb-na; return a<b?1:-1; });
-    // only machines that actually have runs: MACHINES order first, then anything unrecognised
-    var machIds=MACHINES.map(function(m){ return m.id; }).filter(function(id){ return !!machMeta[id]; });
-    Object.keys(machMeta).forEach(function(id){ if(machIds.indexOf(id)<0) machIds.push(id); });
-    function machGroup(id){ return machineGroupOf(id, machMeta[id]?machMeta[id].kind:""); }
-    function machLabel(id){ var m=M(id); return m?m.name:(machMeta[id]?machMeta[id].label:id); }
     if(histFilter.date!=="all" && dates.indexOf(histFilter.date)<0) histFilter.date="all";
     if(histFilter.batch!=="all" && batches.indexOf(histFilter.batch)<0) histFilter.batch="all";
-    if(histFilter.machine.indexOf("g:")===0){
-      if(!machIds.some(function(id){ var g=machGroup(id); return g && "g:"+g.id===histFilter.machine; })) histFilter.machine="all";
-    } else if(histFilter.machine!=="all" && machIds.indexOf(histFilter.machine)<0) histFilter.machine="all";
 
     var batchMode = histFilter.batch!=="all";
     var fr = runs.filter(function(r){
-      // machine narrows every view, including a chosen batch
-      if(histFilter.machine!=="all"){
-        if(histFilter.machine.indexOf("g:")===0){
-          var g=machineGroupOf(r.machineId, r.kind);
-          if(!g || "g:"+g.id!==histFilter.machine) return false;
-        } else if((r.machineId||"")!==histFilter.machine) return false;
-      }
       if(batchMode) return String(r.batchNo||"")===histFilter.batch;
       if(histFilter.date!=="all" && runDate(r)!==histFilter.date) return false;
       if(histFilter.shift!=="all" && (r.shift||"")!==histFilter.shift) return false;
@@ -2272,22 +2245,10 @@
     var dOpts='<option value="all">All days</option>'+dates.map(function(d){ return '<option value="'+esc(d)+'"'+(histFilter.date===d?" selected":"")+'>'+esc(fmtDay(d))+'</option>'; }).join("");
     var sOpts=["all","Day","Night"].map(function(s){ return '<option value="'+s+'"'+(histFilter.shift===s?" selected":"")+'>'+(s==="all"?"Both shifts":s)+'</option>'; }).join("");
     var bOpts='<option value="all">All batches (special)</option>'+batches.map(function(b){ return '<option value="'+esc(b)+'"'+(histFilter.batch===b?" selected":"")+'>#'+esc(b)+'</option>'; }).join("");
-    var mOpts='<option value="all">All machines</option>';
-    MACHINE_GROUPS.forEach(function(g){
-      var ids=machIds.filter(function(id){ var mg=machGroup(id); return mg && mg.id===g.id; });
-      if(!ids.length) return;
-      mOpts+='<optgroup label="'+esc(g.label)+'">'+
-        '<option value="g:'+g.id+'"'+(histFilter.machine==="g:"+g.id?" selected":"")+'>All '+esc(g.label)+'</option>'+
-        ids.map(function(id){ return '<option value="'+esc(id)+'"'+(histFilter.machine===id?" selected":"")+'>'+esc(machLabel(id))+'</option>'; }).join("")+
-        '</optgroup>';
-    });
-    var otherIds=machIds.filter(function(id){ return !machGroup(id); });
-    if(otherIds.length) mOpts+='<optgroup label="Other">'+otherIds.map(function(id){ return '<option value="'+esc(id)+'"'+(histFilter.machine===id?" selected":"")+'>'+esc(machLabel(id))+'</option>'; }).join("")+'</optgroup>';
     var filters='<div class="histbar">'+
       '<div class="field" style="margin:0"><label>Day</label><select data-histfilter="date"'+(batchMode?' disabled':'')+'>'+dOpts+'</select></div>'+
       '<div class="field" style="margin:0"><label>Shift</label><select data-histfilter="shift"'+(batchMode?' disabled':'')+'>'+sOpts+'</select></div>'+
       '<div class="field" style="margin:0"><label>Batch</label><select data-histfilter="batch">'+bOpts+'</select></div>'+
-      '<div class="field" style="margin:0"><label>Machine</label><select data-histfilter="machine">'+mOpts+'</select></div>'+
       '</div>';
 
     var summary="";
