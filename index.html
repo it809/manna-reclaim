@@ -2357,10 +2357,12 @@
     var isAuto=(r.kind==="autoclave")||(mm&&mm.kind==="autoclave");
     var mlabel=r.short||shortName(r.machineId)||r.machine||"";
     var whenTxt=isShift?(fmtDay(r.shiftDate)+' · '+r.shift):fmtDate(r.end);
+    var isGrd3=(r.machineId==="GRD_O");                 // TOD meter: real energy is the difference × 3
     var rows="";
     var shiftDateRow='<div class="field-inline">'+
       '<div class="field"><label>Shift</label><select id="e-shift"><option value="Day"'+(r.shift==="Day"?" selected":"")+'>Day</option><option value="Night"'+(r.shift==="Night"?" selected":"")+'>Night</option></select></div>'+
-      '<div class="field"><label>Shift date</label><input id="e-sdate" type="date" value="'+esc(r.shiftDate||"")+'"></div></div>';
+      '<div class="field"><label>Shift date</label><input id="e-sdate" type="date" value="'+esc(r.shiftDate||"")+'"></div></div>'+
+      '<div class="field"><label>Supervisor</label><input id="e-sup" type="text" value="'+esc(r.supervisor==null?"":r.supervisor)+'"></div>';
     if(!isShift){
       rows+='<div class="field"><label>Batch number</label><input id="e-batch" type="text" value="'+esc(r.batchNo==null?"":r.batchNo)+'"></div>';
       var qopts='<option value="">—</option>'+QUALITIES.map(function(q){ return '<option value="'+esc(q)+'"'+(r.quality===q?" selected":"")+'>'+esc(q)+'</option>'; }).join("");
@@ -2386,6 +2388,11 @@
       rows+='<div class="diffout" id="e-rtnote"></div>';
       rows+='<div class="field"><label>Workers</label><input id="e-wk" type="number" inputmode="numeric" value="'+esc(r.workers==null?"":r.workers)+'"></div>';
     } else {
+      // The raw hour-meter readings are the source of truth; run time follows from their difference.
+      rows+='<div class="sheet-label">Hour meter</div><div class="field-inline">'+
+        '<div class="field"><label>Start reading</label><div class="num-suffix"><input id="e-hours" type="number" inputmode="decimal" placeholder="—" value="'+esc(r.hourStart==null?"":r.hourStart)+'"><span class="sfx">hrs</span></div></div>'+
+        '<div class="field"><label>Stop reading</label><div class="num-suffix"><input id="e-houre" type="number" inputmode="decimal" placeholder="—" value="'+esc(r.hourEnd==null?"":r.hourEnd)+'"><span class="sfx">hrs</span></div></div></div>'+
+        '<div class="diffout" id="e-hournote"></div>';
       rows+='<div class="field-inline">'+
         '<div class="field"><label>Run time (min)</label><input id="e-rt" type="number" inputmode="decimal" value="'+esc(r.runtimeMin==null?"":r.runtimeMin)+'"></div>'+
         '<div class="field"><label>Workers</label><input id="e-wk" type="number" inputmode="numeric" value="'+esc(r.workers==null?"":r.workers)+'"></div></div>';
@@ -2393,12 +2400,32 @@
     if(isAuto){
       rows+='<div class="field"><label>Firewood (kg)</label><input id="e-fw" type="number" inputmode="decimal" value="'+esc(r.firewoodKg==null?"":r.firewoodKg)+'"></div>';
     } else {
-      rows+='<div class="field"><label>Energy (kWh)</label><input id="e-kwh" type="number" inputmode="decimal" value="'+esc(r.kWh==null?"":r.kWh)+'"></div>';
+      // Both meter readings are editable; kWh is re-derived from their difference (× 3 on the Soorya TOD meter)
+      // as soon as either reading is corrected, but stays hand-editable for entries with no readings on record.
+      rows+='<div class="sheet-label">'+(isGrd3?'TOD meter':'Electricity meter')+'</div><div class="field-inline">'+
+        '<div class="field"><label>Start reading</label><div class="num-suffix"><input id="e-elecs" type="number" inputmode="decimal" placeholder="—" value="'+esc(r.elecStart==null?"":r.elecStart)+'"><span class="sfx">units</span></div></div>'+
+        '<div class="field"><label>Final reading</label><div class="num-suffix"><input id="e-elece" type="number" inputmode="decimal" placeholder="—" value="'+esc(r.elecEnd==null?"":r.elecEnd)+'"><span class="sfx">units</span></div></div></div>'+
+        '<div class="diffout" id="e-elecnote"></div>'+
+        '<div class="field"><label>Energy (kWh) <span class="muted" style="text-transform:none;letter-spacing:0">— recalculated when a reading changes</span></label><input id="e-kwh" type="number" inputmode="decimal" value="'+esc(r.kWh==null?"":r.kWh)+'"></div>'+
+        (isGrd3?'<div class="hint" style="margin-top:5px">Soorya has no direct energy meter — this is the <b>TOD meter</b> (one phase); energy is the difference × 3.</div>':'');
     }
     rows+='<div class="field"><label>Output weight (kg) <span class="muted" style="text-transform:none;letter-spacing:0">— blank = none</span></label><input id="e-wt" type="number" inputmode="decimal" value="'+esc(r.weightKg==null?"":r.weightKg)+'"></div>';
+    // The rest of the record — machine, line, mix and audit stamps — is shown so nothing on the row is hidden,
+    // but stays read-only: re-pointing a logged run at another machine or batch would corrupt the totals.
+    var srcs=runSources(r);
+    var facts=[["Machine", (r.machine||mlabel)+(r.machineId?' · '+r.machineId:'')],
+      ["Line", r.line||"—"], ["Type", isShift?"Shiftwise":"Batch run"],
+      ["Formulation", r.formulation||"—"], ["Capacity", r.capacity||"—"],
+      ["Tyre", r.tyreType?(TYRES[r.tyreType]?TYRES[r.tyreType].label+" "+TYRES[r.tyreType].mesh:r.tyreType):"—"],
+      ["Mix sources", srcs.length?srcs.join(" + "):"—"],
+      ["Start / end", (r.start?fmtDate(r.start):"—")+" → "+(r.end?fmtDate(r.end):"—")],
+      ["Start/stops merged", String(r.passes||1)], ["Logged by", r.device||"—"], ["Record id", r.id]];
+    rows+='<div class="sheet-label">Full record</div><div class="ro" style="display:block">'+
+      facts.map(function(f){ return '<div style="display:flex;justify-content:space-between;gap:12px;padding:2px 0"><span class="k">'+esc(f[0])+'</span><span class="muted" style="font-size:11.5px;text-align:right;word-break:break-all">'+esc(f[1])+'</span></div>'; }).join("")+'</div>';
     openSheet('<div class="sheet-h"><b>Edit entry — '+esc(mlabel)+'</b></div>'+
       '<div class="sheet-sub">'+esc(whenTxt)+(r.synced?' · <span style="color:var(--ok)">synced</span>':' · <span class="muted">not synced</span>')+'</div>'+
       rows+
+      '<div class="formwarn" id="e-warn"></div>'+
       '<div class="sheet-actions"><button class="btn ghost" data-act="close">Cancel</button>'+
       '<button class="btn primary" id="e-save">Save changes</button></div>'+
       '<button class="btn danger block" id="e-del" style="margin-top:10px">Delete this entry</button>');
@@ -2413,7 +2440,48 @@
       note.innerHTML = mins<0 ? "Unloading is before loading — check the times." : ("Run time: <b>"+h+" h</b> <span class=\"muted\">("+mins+" min)</span>");
     }
     if(isAuto){ ["#e-ldate","#e-ltime","#e-udate","#e-utime"].forEach(function(s){ var el=sheet.querySelector(s); if(el) el.addEventListener("input",eRtNote); }); eRtNote(); }
+    function eNum(s){ var el=sheet.querySelector(s); return el?num(el.value):null; }
+    // Corrected readings re-derive the totals live, the same arithmetic the stop form uses:
+    // energy = final − start (× 3 on the TOD meter), run time = (stop − start) hours.
+    function eElecNote(recalc){
+      var note=sheet.querySelector("#e-elecnote"); if(!note) return;
+      var s=eNum("#e-elecs"), f=eNum("#e-elece"), d=(s==null||f==null)?null:Math.round((f-s)*100)/100;
+      if(d==null){ note.classList.remove("show","bad"); note.innerHTML=""; }
+      else {
+        note.classList.add("show"); note.classList.toggle("bad", d<0);
+        note.innerHTML = d<0 ? ('Final reading is <b>'+esc(Math.abs(d))+'</b> units below the start — a meter can\'t run backwards.')
+          : ('Consumed: <b>'+esc(f)+'</b> − '+esc(s)+' = <b>'+esc(d)+'</b> units'+(isGrd3?' × 3 = <b>'+esc(Math.round(d*3*100)/100)+'</b> kWh':''));
+      }
+      if(recalc && d!=null && d>=0){ var k=sheet.querySelector("#e-kwh"); if(k) k.value=Math.round((isGrd3?d*3:d)*100)/100; }
+    }
+    function eHourNote(recalc){
+      var note=sheet.querySelector("#e-hournote"); if(!note) return;
+      var s=eNum("#e-hours"), f=eNum("#e-houre"), d=(s==null||f==null)?null:Math.round((f-s)*100)/100;
+      if(d==null){ note.classList.remove("show","bad"); note.innerHTML=""; }
+      else {
+        note.classList.add("show"); note.classList.toggle("bad", d<0);
+        note.innerHTML = d<0 ? ('Stop reading is <b>'+esc(Math.abs(d))+'</b> hrs below the start — it can\'t go backwards.')
+          : ('Run: <b>'+esc(f)+'</b> − '+esc(s)+' = <b>'+esc(d)+'</b> hrs <span class="muted">('+esc(Math.round(d*60*100)/100)+' min)</span>');
+      }
+      if(recalc && d!=null && d>=0){ var rt=sheet.querySelector("#e-rt"); if(rt) rt.value=Math.round(d*60*100)/100; }
+    }
+    function eValidate(){
+      var warn=sheet.querySelector("#e-warn"), go=sheet.querySelector("#e-save"), msgs=[];
+      var es2=eNum("#e-elecs"), ee2=eNum("#e-elece"), hs2=eNum("#e-hours"), he2=eNum("#e-houre");
+      if(es2!=null&&ee2!=null&&ee2<es2) msgs.push("<b>Electricity:</b> final reading ("+ee2+") is below the start ("+es2+") — a meter can't run backwards.");
+      if(hs2!=null&&he2!=null&&he2<hs2) msgs.push("<b>Hour-meter:</b> stop reading ("+he2+") is below the start ("+hs2+") — it can't go backwards.");
+      [["Electricity start",es2],["Electricity final",ee2],["Hour-meter start",hs2],["Hour-meter stop",he2]].forEach(function(p){
+        if(p[1]!=null && p[1]<0) msgs.push("<b>"+p[0]+":</b> a meter reading can't be negative.");
+      });
+      if(msgs.length){ warn.innerHTML=msgs.join("<br>"); warn.classList.add("show"); go.disabled=true; go.classList.add("is-off"); }
+      else { warn.classList.remove("show"); go.disabled=false; go.classList.remove("is-off"); }
+      return msgs.length===0;
+    }
+    ["#e-elecs","#e-elece"].forEach(function(s){ var el=sheet.querySelector(s); if(el) el.addEventListener("input",function(){ eElecNote(true); eValidate(); }); });
+    ["#e-hours","#e-houre"].forEach(function(s){ var el=sheet.querySelector(s); if(el) el.addEventListener("input",function(){ eHourNote(true); eValidate(); }); });
+    eElecNote(false); eHourNote(false); eValidate();
     sheet.querySelector("#e-save").addEventListener("click",function(){
+      if(!eValidate()){ toast("Check the highlighted readings before saving","warn"); return; }
       var es=sheet.querySelector("#e-shift"), ed=sheet.querySelector("#e-sdate");
       if(es) r.shift=es.value; if(ed && ed.value) r.shiftDate=ed.value;
       if(!isShift){
@@ -2435,9 +2503,16 @@
       } else {
         var ert=sheet.querySelector("#e-rt"); if(ert){ r.runtimeMin=num(ert.value); r.hoursRun=Math.round(((num(ert.value)||0)/60)*100)/100; }
       }
+      var esup=sheet.querySelector("#e-sup"); if(esup) r.supervisor=(esup.value||"").trim();
       var ewk=sheet.querySelector("#e-wk"); if(ewk) r.workers=num(ewk.value);
       var efw=sheet.querySelector("#e-fw"); if(efw) r.firewoodKg=num(efw.value);
       var ekwh=sheet.querySelector("#e-kwh"); if(ekwh) r.kWh=num(ekwh.value);
+      // A cleared reading is stored as "" (the shape commitRun writes), not null, so History renders "—".
+      var blk=function(sel){ var el=sheet.querySelector(sel); if(!el) return undefined; var v=num(el.value); return v==null?"":v; };
+      var vES=blk("#e-elecs"); if(vES!==undefined) r.elecStart=vES;
+      var vEE=blk("#e-elece"); if(vEE!==undefined) r.elecEnd=vEE;
+      var vHS=blk("#e-hours"); if(vHS!==undefined) r.hourStart=vHS;
+      var vHE=blk("#e-houre"); if(vHE!==undefined) r.hourEnd=vHE;
       var ewt=sheet.querySelector("#e-wt"); if(ewt) r.weightKg=num(ewt.value);
       var negs=[["Run time",r.runtimeMin],["Workers",r.workers],["Firewood",r.firewoodKg],["Energy",r.kWh],["Output weight",r.weightKg]];
       for(var ni=0;ni<negs.length;ni++){ if(negs[ni][1]!=null && negs[ni][1]!=="" && num(negs[ni][1])<0){ toast(negs[ni][0]+" can't be negative","warn"); return; } }
@@ -2543,7 +2618,7 @@
       '<div class="hint" style="margin-top:10px">"Re-send all" pushes every record again. It is safe — records update by id and won\'t duplicate. '+esc(storeNote)+'</div>'+
       '<div style="margin-top:12px"><button class="btn ghost block" data-act="force-update">↻ Update app to latest version</button></div>'+
       '<div class="hint" style="margin-top:8px;opacity:.85">Use this if the tablet is stuck on an old version. It clears the cache and reloads the newest code from the server (needs internet).</div>'+
-      '<div class="hint" style="margin-top:6px;opacity:.7">Build: app v33 · sync v6 · supabase</div></div>'+
+      '<div class="hint" style="margin-top:6px;opacity:.7">Build: app v34 · sync v6 · supabase</div></div>'+
 
       '<div class="panel" style="margin-top:14px"><div class="sheet-label" style="margin:0 0 10px">Customers & selling price</div>'+
       ((state.settings.customers||[]).length

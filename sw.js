@@ -6,7 +6,7 @@
    To push an app update to every tablet: bump CACHE_VERSION below
    (e.g. v1 -> v2) and re-host this file next to index.html. */
 
-const CACHE_VERSION = "manna-pmm-v33";
+const CACHE_VERSION = "manna-pmm-v34";
 const SHELL = ["./", "./index.html"];
 
 /* Install: pre-cache the app shell so it works offline immediately. */
