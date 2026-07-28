@@ -966,8 +966,7 @@
       '<button class="btn elec" id="lw-plus" style="flex:1">+ Add</button></div>'+
       '<div class="sheet-actions"><button class="btn primary block" data-act="close">Done</button></div>');
     var inp=sheet.querySelector("#lw-add");
-    setTimeout(function(){ try{ inp.focus(); }catch(e){} },120);
-    function add(){ var v=num(inp.value); if(v==null||v<=0){ toast("Enter a weight","warn"); return; } addLiveWeigh(mid,v); }
+    function add(){ var v=num(inp.value); if(v==null||v<=0){ toast("Enter a weight","warn"); return; } try{ inp.blur(); }catch(e){} addLiveWeigh(mid,v); }
     sheet.querySelector("#lw-plus").addEventListener("click",add);
     inp.addEventListener("keydown",function(e){ if(e.key==="Enter") add(); });
     sheet.querySelectorAll("[data-lwdel]").forEach(function(el){ el.addEventListener("click",function(){ removeLiveWeigh(mid, parseInt(el.getAttribute("data-lwdel"),10)); }); });
@@ -3081,8 +3080,7 @@
       '<div class="sheet-actions"><button class="btn ghost" data-act="close">Close</button>'+
       '<button class="btn primary" id="w-submit">Submit total</button></div>');
     var inp=sheet.querySelector("#w-add");
-    setTimeout(function(){ try{ inp.focus(); }catch(e){} },120);
-    function add(){ var v=num(inp.value); if(v==null||v<=0){ toast("Enter a weight","warn"); return; } addWeighEntry(runId,v); }
+    function add(){ var v=num(inp.value); if(v==null||v<=0){ toast("Enter a weight","warn"); return; } try{ inp.blur(); }catch(e){} addWeighEntry(runId,v); }
     sheet.querySelector("#w-plus").addEventListener("click",add);
     inp.addEventListener("keydown",function(e){ if(e.key==="Enter") add(); });
     sheet.querySelectorAll("[data-wdel]").forEach(function(el){
