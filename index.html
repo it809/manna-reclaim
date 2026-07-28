@@ -735,6 +735,13 @@
   function batch(id){ for(var i=0;i<state.batches.length;i++) if(state.batches[i].id===id) return state.batches[i]; return null; }
   function isComplete(r){ return r.needsWeigh ? (r.weightKg!=="" && r.weightKg!=null) : true; }
   function pendingWeigh(){ return state.runs.filter(function(r){ return r.needsWeigh && (r.weightKg===""||r.weightKg==null); }); }
+  // Output that has already been submitted. It stays listed in the Weigh tab, newest first, so a
+  // mis-keyed weight can be corrected where it was entered instead of only from History.
+  function weighedDone(){
+    var done=state.runs.filter(function(r){ return r.needsWeigh && r.weightKg!=="" && r.weightKg!=null; });
+    done.sort(function(a,b){ return (b.end||b.createdAt||0)-(a.end||a.createdAt||0); });
+    return done;
+  }
   function unsynced(){ return state.runs.filter(function(r){ return !r.synced && isComplete(r); }); }
   function unsyncedDispatches(){ return (state.dispatches||[]).filter(function(d){ return !d.synced; }); }
   function unsyncedLoads(){ return (state.dispatchLoads||[]).filter(function(l){ return !l.synced && !l.dummy; }); }
@@ -1036,11 +1043,16 @@
   function removeWeighEntry(runId, idx){
     var r=weighRow(runId); if(!r||!r.weighEntries) return; r.weighEntries.splice(idx,1); save(); openWeighSheet(runId);
   }
-  function submitWeight(runId){
-    var r=weighRow(runId); if(!r) return; var t=sum(r.weighEntries);
-    if(t<=0){ toast("Add a weight first","warn"); return; }
+  // explicit != null when correcting an already-submitted weight (the operator can override the
+  // weighings total, e.g. for output whose weight was typed straight into the stop form).
+  function submitWeight(runId, explicit){
+    var r=weighRow(runId); if(!r) return;
+    var t=(explicit==null)?sum(r.weighEntries):Math.round(explicit*100)/100;
+    if(t<=0){ toast(explicit==null?"Add a weight first":"The corrected weight must be greater than zero","warn"); return; }
+    var was=(r.weightKg===""||r.weightKg==null)?null:(parseFloat(r.weightKg)||0);
     r.weightKg=t; r.synced=false;
-    save(); closeSheet(); render(); toast("Weight submitted · "+t+" kg","ok");
+    save(); closeSheet(); render();
+    toast(was==null ? ("Weight submitted · "+t+" kg") : ("Weight corrected · "+was+" → "+t+" kg"),"ok");
   }
   var syncing=false, autoTimer=null;
   function autoSyncOn(){ return !!(state && state.settings) && state.settings.autoSync!==false; }
@@ -1728,24 +1740,39 @@
       srcChip+'<span class="formchip">'+esc(b.formulation)+'</span>'+preChip+'</div>'+state2+'</div>'+grid+hint+closeBtn+'</div>';
   }
 
+  var WEIGH_DONE_MAX=20;                 // the tab is for corrections, not an archive — History holds the rest
   function viewWeigh(){
-    var p=pendingWeigh();
-    if(!p.length) return '<div class="view-head"><h1>Weigh</h1></div>'+
+    var p=pendingWeigh(), doneAll=weighedDone(), done=doneAll.slice(0,WEIGH_DONE_MAX);
+    if(!p.length && !done.length) return '<div class="view-head"><h1>Weigh</h1></div>'+
       empty('<path d="M12 3v3"/><path d="M5 6h14"/><path d="M5 6 2 14a4 4 0 0 0 6 0L5 6Z"/><path d="M19 6l-3 8a4 4 0 0 0 6 0l-3-8Z"/><path d="M9 20h6"/><path d="M12 6v14"/>',
         "Nothing to weigh","Finish R4 (special), a coarse R2 shift, or a grinder shift and it lands here.");
-    var cards=p.slice().reverse().map(function(r){
-      var draft=sum(r.weighEntries), n=(r.weighEntries||[]).length, sw=!!r.shiftwise, grind=r.line==="grind";
-      var chipBg = grind?"var(--steel);color:#0e1a08":"var(--ember)";
-      var head = sw
-        ? '<span class="batchref">'+esc(r.short)+'</span><span class="qchip shift" style="background:'+chipBg+'">'+esc(r.shift)+'</span>'+(r.tyreType?'<span class="formchip" style="color:var(--steel)">'+esc(TYRES[r.tyreType].mesh)+'</span>':'')
+    function wHead(r){
+      var sw=!!r.shiftwise, chipBg=(r.line==="grind")?"var(--steel);color:#0e1a08":"var(--ember)";
+      return sw
+        ? '<span class="batchref">'+esc(r.short)+'</span><span class="qchip shift" style="background:'+chipBg+'">'+esc(r.shift)+'</span>'+(r.tyreType&&TYRES[r.tyreType]?'<span class="formchip" style="color:var(--steel)">'+esc(TYRES[r.tyreType].mesh)+'</span>':'')
         : '<span class="batchref">'+esc(r.batchNo)+'</span>'+qchip(r.quality);
-      var label = sw ? ((grind?'Grinder output · ':'Coarse · ')+esc(fmtDay(r.shiftDate))) : (esc(r.formulation)+' · R4 '+fmtClock(r.end));
+    }
+    function wLabel(r){
+      return r.shiftwise ? (((r.line==="grind")?'Grinder output · ':'Coarse · ')+esc(fmtDay(r.shiftDate))) : (esc(r.formulation)+' · R4 '+fmtClock(r.end));
+    }
+    var cards=p.slice().reverse().map(function(r){
+      var draft=sum(r.weighEntries), n=(r.weighEntries||[]).length;
       var prog = (n>0 ? '<small style="color:var(--elec)">'+draft+' kg so far · '+n+' weighing'+(n>1?'s':'')+'</small>'
-               : '<small>'+label+'</small>');
-      return '<div class="wcard"><div class="info"><div class="row1">'+head+'</div>'+prog+'</div>'+
+               : '<small>'+wLabel(r)+'</small>');
+      return '<div class="wcard"><div class="info"><div class="row1">'+wHead(r)+'</div>'+prog+'</div>'+
         '<button class="btn primary" data-weigh="'+r.id+'">'+(n>0?'Resume ▸':'Weigh ▸')+'</button></div>';
     }).join("");
-    return '<div class="view-head"><h1>Weigh</h1><div class="meta">'+p.length+' pending</div></div><div class="stack">'+cards+'</div>';
+    var doneCards=done.map(function(r){
+      var n=(r.weighEntries||[]).length, conv=Math.round((parseFloat(r.convOutKg)||0)*100)/100;
+      return '<div class="wcard"><div class="info"><div class="row1">'+wHead(r)+'</div>'+
+        '<small><b style="color:var(--ok)">'+esc(r.weightKg)+' kg</b> · '+wLabel(r)+
+        (n?' · '+n+' weighing'+(n>1?'s':''):'')+(conv>0?' · '+conv+' kg converted':'')+'</small></div>'+
+        '<button class="btn ghost" data-weigh="'+r.id+'">Correct ▸</button></div>';
+    }).join("");
+    return '<div class="view-head"><h1>Weigh</h1><div class="meta">'+p.length+' pending'+(doneAll.length?' · '+doneAll.length+' weighed':'')+'</div></div>'+
+      (p.length ? '<div class="stack">'+cards+'</div>'
+                : '<div class="hint">Nothing pending — every finished run has been weighed.</div>')+
+      (done.length ? '<div class="sheet-label" style="margin-top:18px">Weighed'+(doneAll.length>done.length?' <span class="muted" style="text-transform:none;letter-spacing:0">— latest '+done.length+' of '+doneAll.length+'</span>':'')+'</div><div class="stack">'+doneCards+'</div>' : '');
   }
 
   /* ===================== dispatch ===================== */
@@ -2617,7 +2644,7 @@
       '<div class="hint" style="margin-top:10px">"Re-send all" pushes every record again. It is safe — records update by id and won\'t duplicate. '+esc(storeNote)+'</div>'+
       '<div style="margin-top:12px"><button class="btn ghost block" data-act="force-update">↻ Update app to latest version</button></div>'+
       '<div class="hint" style="margin-top:8px;opacity:.85">Use this if the tablet is stuck on an old version. It clears the cache and reloads the newest code from the server (needs internet).</div>'+
-      '<div class="hint" style="margin-top:6px;opacity:.7">Build: app v34 · sync v6 · supabase</div></div>'+
+      '<div class="hint" style="margin-top:6px;opacity:.7">Build: app v35 · sync v6 · supabase</div></div>'+
 
       '<div class="panel" style="margin-top:14px"><div class="sheet-label" style="margin:0 0 10px">Customers & selling price</div>'+
       ((state.settings.customers||[]).length
@@ -3054,8 +3081,16 @@
     var r=weighRow(runId); if(!r) return;
     if(!r.weighEntries) r.weighEntries=[];
     var entries=r.weighEntries, total=sum(entries);
+    var submitted=(r.weightKg===""||r.weightKg==null)?null:(parseFloat(r.weightKg)||0);
+    var done=(submitted!=null);                  // reopened after submitting -> correction mode
+    var convOut=Math.round((parseFloat(r.convOutKg)||0)*100)/100;
     var convTo = (!r.shiftwise && r.machineId==="R4") ? CONVERTS[r.quality] : null;
-    var canConv = !!convTo;
+    // Converting again from here would re-submit the raw weighings total and undo the earlier
+    // deduction, so a corrected row converts at packing instead.
+    var canConv = !!convTo && !done;
+    // What the corrected total should default to: rebuilt from the weighings when there are any
+    // (less anything already converted away), otherwise the weight currently on record.
+    var defTotal = entries.length ? Math.round((total-convOut)*100)/100 : submitted;
     var subline = '<div class="sheet-sub">'+(r.shiftwise
         ? (r.line==="grind"?'Grinder output · ':'Coarse · ')+esc(r.shift)+' shift · '+esc(fmtDay(r.shiftDate))+(r.tyreType?' · '+esc(TYRES[r.tyreType].label)+' '+esc(TYRES[r.tyreType].mesh):'')+(r.formulation?' · '+esc(r.formulation):'')
         : '<span class="batchref">'+esc(r.batchNo)+'</span> · '+esc(r.formulation)+' · '+esc(r.quality))+'</div>';
@@ -3068,17 +3103,27 @@
       ? '<div class="weighlist">'+entries.map(function(v,i){
           return '<div class="weighrow"><span class="tnum">'+v+' kg</span><button class="wdel" data-wdel="'+i+'" aria-label="remove">✕</button></div>';
         }).join("")+'</div>'
-      : '<div class="hint" style="margin:4px 0 12px">No weighings added yet. Add each load — the total keeps building until you submit.</div>';
-    openSheet('<div class="sheet-h"><span class="led" style="background:radial-gradient(circle at 35% 30%,#9fe0ea,var(--elec));box-shadow:0 0 10px 1px var(--elec)"></span><b>Weigh output</b></div>'+
+      : '<div class="hint" style="margin:4px 0 12px">'+(done
+          ? 'No individual weighings on record — this weight was entered when the run was logged. Correct the total below, or add weighings to rebuild it.'
+          : 'No weighings added yet. Add each load — the total keeps building until you submit.')+'</div>';
+    var totalBox = done
+      ? '<div class="ro" style="margin-bottom:10px"><span class="k">Weight on record</span><span class="v" style="color:var(--ok)">'+submitted+' kg</span></div>'+
+        (entries.length?'<div class="ro" style="margin-bottom:10px"><span class="k">Weighings total</span><span class="v" style="color:var(--elec)">'+total+' kg</span></div>':'')+
+        (convOut>0?'<div class="hint" style="margin:-4px 0 10px">'+convOut+' kg was converted to '+esc(CONVERTS[r.quality]||"another grade")+' at weighing — the corrected total already subtracts it.</div>':'')+
+        '<div class="field"><label>Corrected total weight</label><div class="num-suffix"><input id="w-total" type="number" inputmode="decimal" value="'+esc(defTotal==null?"":defTotal)+'"><span class="sfx">kg</span></div></div>'+
+        '<div class="diffout" id="w-diff"></div>'
+      : '<div class="ro" style="margin-bottom:14px"><span class="k">Running total</span><span class="v" style="color:var(--elec)">'+total+' kg</span></div>';
+    openSheet('<div class="sheet-h"><span class="led" style="background:radial-gradient(circle at 35% 30%,#9fe0ea,var(--elec));box-shadow:0 0 10px 1px var(--elec)"></span><b>'+(done?'Correct weight':'Weigh output')+'</b></div>'+
       subline+
-      '<div class="ro" style="margin-bottom:14px"><span class="k">Running total</span><span class="v" style="color:var(--elec)">'+total+' kg</span></div>'+
+      totalBox+
       list+
-      '<div class="sheet-label">Add a weighing</div>'+
+      '<div class="sheet-label">'+(done?'Add another weighing':'Add a weighing')+'</div>'+
       '<div class="field-inline" style="align-items:stretch"><div class="field" style="flex:2;margin-bottom:0"><div class="num-suffix"><input id="w-add" type="number" inputmode="decimal" placeholder="0"><span class="sfx">kg</span></div></div>'+
       '<button class="btn elec" id="w-plus" style="flex:1">+ Add</button></div>'+
       convBox+
+      (done&&convTo?'<div class="hint" style="margin-top:10px">Found more '+esc(convTo)+'? Convert it at packing — this weight is already submitted.</div>':'')+
       '<div class="sheet-actions"><button class="btn ghost" data-act="close">Close</button>'+
-      '<button class="btn primary" id="w-submit">Submit total</button></div>');
+      '<button class="btn primary" id="w-submit">'+(done?'Save correction':'Submit total')+'</button></div>');
     var inp=sheet.querySelector("#w-add");
     function add(){ var v=num(inp.value); if(v==null||v<=0){ toast("Enter a weight","warn"); return; } try{ inp.blur(); }catch(e){} addWeighEntry(runId,v); }
     sheet.querySelector("#w-plus").addEventListener("click",add);
@@ -3086,7 +3131,26 @@
     sheet.querySelectorAll("[data-wdel]").forEach(function(el){
       el.addEventListener("click",function(){ removeWeighEntry(runId, parseInt(el.getAttribute("data-wdel"),10)); });
     });
-    sheet.querySelector("#w-submit").addEventListener("click",function(){ submitWeight(runId); });
+    // Correction mode: show what the change does to the weight already on record, the same
+    // difference readout the meter readings use.
+    function wDiff(){
+      var d=sheet.querySelector("#w-diff"), t=sheet.querySelector("#w-total"); if(!d||!t) return;
+      var v=num(t.value);
+      if(v==null){ d.classList.remove("show","bad"); d.innerHTML=""; return; }
+      var delta=Math.round((v-submitted)*100)/100;
+      d.classList.add("show"); d.classList.toggle("bad", v<=0);
+      d.innerHTML = v<=0 ? "The corrected weight must be greater than zero."
+        : (delta===0 ? ('Unchanged — still <b>'+esc(v)+'</b> kg.')
+                     : ('Change: <b>'+esc(v)+'</b> − '+esc(submitted)+' = <b>'+(delta>0?'+':'')+esc(delta)+'</b> kg'));
+    }
+    var totEl=sheet.querySelector("#w-total");
+    if(totEl){ totEl.addEventListener("input",wDiff); wDiff(); }
+    sheet.querySelector("#w-submit").addEventListener("click",function(){
+      if(!totEl){ submitWeight(runId, null); return; }
+      var cv=num(totEl.value);
+      if(cv==null){ toast("Enter the corrected total weight","warn"); return; }
+      submitWeight(runId, cv);
+    });
     if(canConv){ var cg=sheet.querySelector("#w-conv-go"); if(cg) cg.addEventListener("click",function(){ convertAtWeigh(runId, num(sheet.querySelector("#w-conv").value)); }); }
   }
 
